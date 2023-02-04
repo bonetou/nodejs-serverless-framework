@@ -6,17 +6,21 @@ provider:
   runtime: nodejs18.x
 
 functions:
-  sendResponse: api/index.sendResponse
-  events:
-    - httpApi:
-        path: /api/results
-        method: post
-        request:
-          schemas:
-            application/json: ${file(./schemas/sendResponse.json)}
+  sendResponse:
+    handler: api/index.sendResponse
+    events:
+      - httpApi:
+          path: /api/results
+          method: post
+          request:
+            schemas:
+              application/json: ${file(./schemas/sendResponse.json)}
   getResult:
     handler: api/index.getResult
     events:
       - httpApi:
           path: /api/results/{id}
           method: get
+
+plugins:
+  - serverless-offline
