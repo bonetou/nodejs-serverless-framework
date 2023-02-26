@@ -1,12 +1,14 @@
+org: bonetou
+app: aws-node-http-api-project
 service: aws-node-http-api-project
 frameworkVersion: '3'
-
 
 params:
   default:
     dbName: alura-serverless
   dev:
     connectionStr: mongodb://localhost:27017/${self:params.default.dbName}
+  prod:
 
 provider:
   name: aws
