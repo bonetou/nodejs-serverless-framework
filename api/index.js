@@ -1,79 +1,52 @@
-const { MongoClient, ObjectId } = require('mongodb')
-
-async function connectToDatabase() {
-  const client = new MongoClient(process.env.MONGODB_URI)
-  const connection = await client.connect()
-  return connection.db(process.env.MONGODB_DB_NAME)
-}
+'use strict'
+const { authorize, createToken, makeHash } = require('./auth')
+const { getResultById, getUserByCredentials, saveResultToDatabase } = require('./database')
+const { buildResponse } = require('./utils')
+const { countCorrectAnswers } = require('./responses')
 
 function extractBody(event) {
-  if (!event?.body) {
-    return {
-      statusCode: 422,
-      body: JSON.stringify({
-        error: 'Missing body'
-      })
+    if (!event?.body) {
+        return buildResponse(422, { error: 'Missing body' })
     }
-  }
-  return JSON.parse(event.body)
+
+    return JSON.parse(event.body)
+}
+
+module.exports.login = async (event) => {
+    const { username, password } = extractBody(event)
+    const hashedPass = makeHash(password)
+
+    const user = await getUserByCredentials(username, hashedPass)
+
+    if (!user) {
+        return buildResponse(401, { error: 'Invalid username or password' })
+    }
+
+    return buildResponse(200, { token: createToken(username, user._id) })
 }
 
 module.exports.sendResponse = async (event) => {
-  const { name, answers } = extractBody(event)
-  const correctQuestions = [3, 1, 0, 2]
-  const totalCorrectAnswers = answers.reduce((acc, answer, index) => {
-    if (answer === correctQuestions[index]) {
-      acc++
-    }
-    return acc
-  }, 0)
+    const authResult = await authorize(event.headers.authorization)
+    if (authResult.statusCode === 401) return authResult
 
-  const result = {
-    name,
-    answers,
-    totalCorrectAnswers,
-    totalAnswers: answers.length
-  }
+    const { name, answers } = extractBody(event)
+    const result = countCorrectAnswers(name, answers)
+    const insertedId = await saveResultToDatabase(result)
 
-  const db = await connectToDatabase()
-  const collection = db.collection('results')
-  const { insertedId } = await collection.insertOne(result)
-
-  return {
-    statusCode: 201,
-    body: JSON.stringify({
-      resultId: insertedId,
-      __hypermedia: {
-        href: `/results.html`,
-        query: { id: insertedId }
-      }
-    }),
-    headers: {
-      'Content-Type': 'application/json'
-    }
-  }
+    return buildResponse(201, {
+        resultId: insertedId,
+        __hypermedia: { href: '/results.html', query: { id: insertedId } }
+    })
 }
 
 module.exports.getResult = async (event) => {
-  const db = await connectToDatabase()
-  const collection = db.collection('results')
-  const result = await collection.findOne({ _id: new ObjectId(event.pathParameters.id) })
-  if (!result) {
-    return {
-      statusCode: 404,
-      body: JSON.stringify({
-        error: 'Result not found'
-      }),
-      headers: {
-        'Content-Type': 'application/json'
-      }
+    const authResult = await authorize(event.headers.authorization)
+    if (authResult.statusCode === 401) return authResult
+
+    const result = await getResultById(event.pathParameters.id)
+    if (!result) {
+        return buildResponse(404, { error: 'Result not found' })
     }
-  }
-  return {
-    statusCode: 200,
-    body: JSON.stringify(result),
-    headers: {
-      'Content-Type': 'application/json'
-    }
-  }
+
+    return buildResponse(200, result)
 }
